@@ -12,13 +12,13 @@ from jinja2 import Environment, FileSystemLoader
 
 BASE_DIR = Path()
 BUFFER_SIZE = 1024
-HTTP_PORT = 5000
+HTTP_PORT = 3000
 HTTP_HOST = 'localhost'
 SOCKET_HOST = '127.0.0.1'
-SOCKET_PORT = 3000
+SOCKET_PORT = 5000
 
 
-jinja = Environment(loader=FileSystemLoader('templates'))
+#jinja = Environment(loader=FileSystemLoader('templates'))
 
 
 class GoItFramework(BaseHTTPRequestHandler):
@@ -31,8 +31,8 @@ class GoItFramework(BaseHTTPRequestHandler):
             self.send_html("index.html")
         elif route.path == "/message":
             self.send_html("message.html")
-        elif route.path == "/contact":
-            self.send_html("contact.html")
+   #     elif route.path == "/contact":
+      #      self.send_html("contact.html")
         else:
             file = BASE_DIR.joinpath(route.path[1:])
             if file.exists():
@@ -47,7 +47,7 @@ class GoItFramework(BaseHTTPRequestHandler):
         client_socket.sendto(data, (SOCKET_HOST, SOCKET_PORT))
         client_socket.close()
         self.send_response(302)
-        self.send_header('Location', '/contact')
+        self.send_header('Location', '/')
         self.end_headers()
 
         
@@ -60,17 +60,17 @@ class GoItFramework(BaseHTTPRequestHandler):
             self.wfile.write(file.read())
 
 
-    def render_template(self, filename, status_code=200):
-        self.send_response(status_code)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-
-        with open('storage/db.json', 'r', encoding= 'utf-8') as file:
-            data = json.load(file)
-
-        template = jinja.get_template(filename)
-        html = template.render(blogs=data)
-        self.wfile.write(html.encode())  
+    # def render_template(self, filename, status_code=200):
+    #     self.send_response(status_code)
+    #     self.send_header('Content-Type', 'text/html')
+    #     self.end_headers()
+    #
+    #     with open('storage/db.json', 'r', encoding= 'utf-8') as file:
+    #         data = json.load(file)
+    #
+    #     template = jinja.get_template(filename)
+    #     html = template.render(blogs=data)
+    #     self.wfile.write(html.encode())
         
     def send_static(self, filename, status_code=200):
         self.send_response(status_code)
@@ -85,7 +85,7 @@ class GoItFramework(BaseHTTPRequestHandler):
 
 
 def save_data(data):
-    data_parse = urllib.parse.unquote_plus(data())
+    data_parse = urllib.parse.unquote_plus(data.decode())
     try:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         new_data = {current_time: {key: value for key, value in [el.split('=') for el in data_parse.split('&')]}}
@@ -94,22 +94,24 @@ def save_data(data):
 
         try:
             with open(file_path, "r", encoding="utf-8") as file:
-                data = json.load(file)
+                existing_data = json.load(file)
         except FileNotFoundError:
-            data = {}
+            existing_data = {}
+        except ValueError:
+            existing_data = {}
 
-        data.update(new_data)
+        existing_data.update(new_data)
 
         with open(file_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=2)
+            json.dump(existing_data, file, ensure_ascii=False, indent=2)
 
     except ValueError as error:
         logging.error(f"ValueError: {error}")
     except OSError as oser:
-        print(f"OSError: {oser}")
+        logging.error(f"OSError: {oser}")
 
 def run_http_server(host, port):
-    address = ('localhost', 5000)
+    address = (host, port)
     http_server = HTTPServer(address, GoItFramework)
     logging.info('Starting http server')
     try:
@@ -119,12 +121,24 @@ def run_http_server(host, port):
     finally:
         http_server.server_close()
 
+def run_socket_server(host, port):
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server_socket.bind((host, port))
+    logging.info("Starting socket")
+    try:
+        while True:
+            msg, address = server_socket.recvfrom(BUFFER_SIZE)
+            logging.info("++")
+            save_data(msg)
+    except KeyboardInterrupt:
+        server_socket.close()
+
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s [%(threadName)s] %(message)s', level=logging.INFO)
     logging.info('Starting socket server')
 
-    server = Thread(target=run_http_server, args=(HTTP_HOST,HTTP_PORT))
+    server = Thread(target=run_http_server, args=(HTTP_HOST, HTTP_PORT))
     server.start()
 
-    server_socket = Thread(target=run_http_server, args=(SOCKET_HOST, SOCKET_PORT))
+    server_socket = Thread(target=run_socket_server, args=(SOCKET_HOST, SOCKET_PORT))
     server_socket.start()
